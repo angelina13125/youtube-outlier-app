@@ -1,4 +1,5 @@
-streamlit
-pandas
-google-api-python-client
-openpyxl
+streamlit==1.50.0
+google-api-python-client==2.185.0
+pandas==2.3.3
+isodate==0.7.2
+
