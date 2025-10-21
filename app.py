@@ -18,6 +18,11 @@ def get_channel_stats(channel_id):
         part="statistics,snippet",
         id=channel_id
     ).execute()
+
+     # Check if any channel was returned
+    if 'items' not in res or not res['items']:
+        return None  # No data found
+        
     item = res['items'][0]
     stats = item['statistics']
     snippet = item['snippet']
@@ -67,25 +72,39 @@ def fetch_random_videos(keywords, num_results=20, min_views=100000):
             part="id,snippet",
             q=kw,
             type="video",
-            maxResults=1,
+            maxResults=10,  # fetch 10 videos per keyword
             order="viewCount"
         ).execute()
-        for item in res.get("items", []):
-            vid = item["id"]["videoId"]
-            snippet = item["snippet"]
-            stats = youtube.videos().list(part="statistics", id=vid).execute()['items'][0]['statistics']
-            views = int(stats.get('viewCount', 0))
-            if views < min_views:
-                continue
-            all_videos.append({
-                "Video ID": vid,
-                "Title": snippet['title'],
-                "Thumbnail": snippet['thumbnails']['medium']['url'],
-                "Published": snippet['publishedAt'],
-                "Video URL": f"https://www.youtube.com/watch?v={vid}",
-                "Views": views
-            })
+
+        items = res.get("items", [])
+        if not items:
+            continue  # skip if no videos
+
+        item = random.choice(items)  # pick 1 randomly
+        vid = item["id"]["videoId"]
+        snippet = item["snippet"]
+
+        stats_res = youtube.videos().list(part="statistics", id=vid).execute()
+        stats_items = stats_res.get('items', [])
+        if not stats_items:
+            continue
+
+        stats = stats_items[0]['statistics']
+        views = int(stats.get('viewCount', 0))
+        if views < min_views:
+            continue
+
+        all_videos.append({
+            "Video ID": vid,
+            "Title": snippet['title'],
+            "Thumbnail": snippet['thumbnails']['medium']['url'],
+            "Published": snippet['publishedAt'],
+            "Video URL": f"https://www.youtube.com/watch?v={vid}",
+            "Views": views
+        })
+
     return all_videos
+
 
 # ==========================
 # Streamlit Layout
@@ -109,6 +128,9 @@ with tab1:
         all_videos = []
         for cid in [c.strip() for c in channel_input.split(",") if c.strip()]:
             stats = get_channel_stats(cid)
+            if stats is None:
+                st.warning(f"No data found for channel: {cid}")
+                continue
             vids = get_videos_from_channel(cid, max_results=max_results, min_views=min_views)
             # calculate outlier score
             channel_avg = stats['total_views'] / max(stats['video_count'],1)
@@ -139,7 +161,17 @@ with tab1:
                         col.write(f"Published: {video['Published']}")
             
             # Export to Excel
-            st.download_button("Export to Excel", df.to_excel(index=False), file_name="saved_channel_videos.xlsx")
+            import io  # add this at the top with your other imports
+
+            # ... later, after creating your DataFrame (df)
+            output = io.BytesIO()
+            df.to_excel(output, index=False)
+            st.download_button(
+                "Export to Excel",
+                data=output.getvalue(),
+                file_name="random_outlier_videos.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         else:
             st.warning("No videos found.")
 
@@ -168,6 +200,16 @@ with tab2:
                         col.write(f"Views: {video['Views']}")
                         col.write(f"Published: {video['Published']}")
             
-            st.download_button("Export to Excel", df.to_excel(index=False), file_name="random_outlier_videos.xlsx")
+            import io  # add this at the top with your other imports
+
+            # ... later, after creating your DataFrame (df)
+            output = io.BytesIO()
+            df.to_excel(output, index=False)
+            st.download_button(
+                "Export to Excel",
+                data=output.getvalue(),
+                file_name="random_outlier_videos.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         else:
             st.warning("No videos found.")
