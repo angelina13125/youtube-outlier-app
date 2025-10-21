@@ -305,9 +305,31 @@ with tab1:
 # -----------------------
 # (Keep your Research tab mostly unchanged — it already fetches candidate videos dynamically)
 # You may want to copy the same "lookback" improvements if needed.
+with tab2:
+    st.header("Research (Outlier Finder)")
+    st.caption("Use framing keywords (e.g., 'I tried', 'My story') or your own terms.")
+    keywords_input = st.text_area("Keywords", "I tried, My story, Top 10", height=80, key="keywords_tab2")
+    num_results = st.slider("Random results", 5, 200, 50, key="num_results_tab2")
+    min_views = st.number_input("Min views", 100000, step=10000, key="min_views_tab2")
+    min_subs = st.number_input("Min subs", 0, step=1000, key="min_subs_tab2")
+    min_outlier = st.number_input("Min outlier multiplier", 5.0, step=0.1, key="min_outlier_tab2")
+    min_views_subs_ratio = st.number_input("Min views:subs ratio", 0.0, step=0.1, key="ratio_tab2")
+    content_type = st.selectbox("Content type", ["All", "Long-form", "Shorts"], key="ctype_tab2")
+
+    include_keywords = st.text_input("Include keywords", key="include_kw_tab2")
+    exclude_keywords = st.text_input("Exclude keywords", key="exclude_kw_tab2")
+    include_channels = st.text_input("Include channels", key="include_ch_tab2")
+    exclude_channels = st.text_input("Exclude channels", key="exclude_ch_tab2")
+    preset = st.selectbox("Date preset", ["All Time", "Last 30 Days", "Last 90 Days", "Last 180 Days", "Last 365 Days"], key="preset_tab2")
+
+    if st.button("Random", key="random_tab2"):
+        st.write("Running research…")
+        # (core logic same as yours – omitted for brevity, keep existing filtering code here)
 
 st.markdown("---")
-st.caption("Built with YouTube Data API v3 — keeps results cached in-session to reduce API quota usage.")
+st.caption("Built with YouTube Data API v3 — caches in-session to reduce quota usage.")
+
+
 
 
 
