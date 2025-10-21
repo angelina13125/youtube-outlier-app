@@ -1,4 +1,4 @@
-# app.py - Optimized YouTube Outlier Finder (Saved Channels + Research)
+# app.py - Simplified YouTube Outlier Finder
 import streamlit as st
 import pandas as pd
 from googleapiclient.discovery import build
@@ -11,32 +11,26 @@ from urllib.parse import urlparse
 # -----------------------
 # CONFIG
 # -----------------------
-API_KEY = "AIzaSyBeP68hrblnvgVFkZccoRas44uJSshHTxE" # <-- set in Streamlit secrets
+API_KEY = "AIzaSyBeP68hrblnvgVFkZccoRas44uJSshHTxE"
 YOUTUBE = build("youtube", "v3", developerKey=API_KEY)
-
+MAX_VIDEOS_PER_CHANNEL = 50
 SEARCH_RESULTS_PER_KEYWORD = 10
-CHANNEL_LOOKBACK_VIDEOS_DEFAULT = 50
-VIDEOS_BATCH_SIZE = 50
-MAX_CHANNELS_PER_FETCH = 10
 
 # -----------------------
 # SESSION CACHES
 # -----------------------
 if "channel_cache" not in st.session_state:
-    st.session_state.channel_cache = {}
-
+    st.session_state.channel_cache = {}   # channel_id -> info dict
 if "video_cache" not in st.session_state:
-    st.session_state.video_cache = {}
-
-if "playlist_cache" not in st.session_state:
-    st.session_state.playlist_cache = {}
+    st.session_state.video_cache = {}     # video_id -> info dict
 
 # -----------------------
 # HELPERS
 # -----------------------
 def parse_channel_id(value: str):
+    """Resolve /channel/ URLs, @handles, or raw IDs"""
     value = value.strip()
-    if value == "":
+    if not value:
         return None
     try:
         u = urlparse(value)
@@ -44,6 +38,12 @@ def parse_channel_id(value: str):
             path = u.path.strip("/").split("/")
             if len(path) >= 2 and path[0] == "channel":
                 return path[1]
+            elif path[0].startswith("@"):
+                # search handle
+                res = YOUTUBE.search().list(part="snippet", q=path[0], type="channel", maxResults=1).execute()
+                items = res.get("items", [])
+                if items:
+                    return items[0]["snippet"]["channelId"]
         return value
     except Exception:
         return value
@@ -52,7 +52,7 @@ def safe_api_call(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs).execute()
     except Exception as e:
-        st.error(f"YouTube API error: {e}")
+        st.warning(f"YouTube API error: {e}")
         return None
 
 def get_channel_info(channel_id):
@@ -61,10 +61,10 @@ def get_channel_info(channel_id):
     if channel_id in st.session_state.channel_cache:
         return st.session_state.channel_cache[channel_id]
     res = safe_api_call(YOUTUBE.channels().list, part="statistics,snippet,contentDetails", id=channel_id)
-    if not res or 'items' not in res or not res['items']:
+    if not res or not res.get("items"):
         st.session_state.channel_cache[channel_id] = None
         return None
-    item = res['items'][0]
+    item = res["items"][0]
     stats = item.get("statistics", {})
     snippet = item.get("snippet", {})
     content = item.get("contentDetails", {})
@@ -74,117 +74,78 @@ def get_channel_info(channel_id):
         "subs": int(stats.get("subscriberCount") or 0),
         "total_views": int(stats.get("viewCount") or 0),
         "video_count": int(stats.get("videoCount") or 0),
-        "created_at": snippet.get("publishedAt"),
-        "profile_pic": snippet.get("thumbnails", {}).get("default", {}).get("url"),
         "uploads_playlist": content.get("relatedPlaylists", {}).get("uploads")
     }
     st.session_state.channel_cache[channel_id] = info
     return info
 
-def chunk_list(xs, n):
-    for i in range(0, len(xs), n):
-        yield xs[i:i+n]
-
 def fetch_videos_details(video_ids):
     to_fetch = [vid for vid in video_ids if vid not in st.session_state.video_cache]
-    for chunk in chunk_list(to_fetch, VIDEOS_BATCH_SIZE):
-        resp = safe_api_call(YOUTUBE.videos().list, part="snippet,statistics,contentDetails",
-                             id=",".join(chunk), maxResults=VIDEOS_BATCH_SIZE)
+    for i in range(0, len(to_fetch), 50):
+        chunk = to_fetch[i:i+50]
+        resp = safe_api_call(YOUTUBE.videos().list, part="snippet,statistics,contentDetails", id=",".join(chunk))
         if not resp:
             continue
         for item in resp.get("items", []):
-            vid = item.get("id")
+            vid = item["id"]
             sn = item.get("snippet", {})
             stt = item.get("statistics", {})
             cd = item.get("contentDetails", {})
             try:
-                duration_s = int(isodate.parse_duration(cd.get("duration", "PT0S")).total_seconds())
-            except Exception:
+                duration_s = int(isodate.parse_duration(cd.get("duration","PT0S")).total_seconds())
+            except:
                 duration_s = None
             st.session_state.video_cache[vid] = {
                 "video_id": vid,
                 "title": sn.get("title"),
-                "thumbnail": sn.get("thumbnails", {}).get("medium", {}).get("url"),
-                "publishedAt": sn.get("publishedAt"),
-                "views": int(stt.get("viewCount") or 0),
-                "likes": int(stt.get("likeCount") or 0) if "likeCount" in stt else None,
-                "comments": int(stt.get("commentCount") or 0) if "commentCount" in stt else None,
-                "duration_s": duration_s,
                 "channelId": sn.get("channelId"),
-                "channelTitle": sn.get("channelTitle")
+                "channelTitle": sn.get("channelTitle"),
+                "views": int(stt.get("viewCount") or 0),
+                "publishedAt": sn.get("publishedAt"),
+                "duration_s": duration_s,
+                "thumbnail": sn.get("thumbnails", {}).get("medium", {}).get("url")
             }
-    return {vid: st.session_state.video_cache.get(vid) for vid in video_ids if st.session_state.video_cache.get(vid)}
+    return {vid: st.session_state.video_cache[vid] for vid in video_ids if vid in st.session_state.video_cache}
 
-def get_uploads_video_ids_from_channel(channel_id, max_videos=100):
-    channel_info = get_channel_info(channel_id)
-    if not channel_info:
+def get_channel_video_ids(channel_id, max_videos=MAX_VIDEOS_PER_CHANNEL):
+    ch_info = get_channel_info(channel_id)
+    if not ch_info or not ch_info.get("uploads_playlist"):
         return []
-    playlist_id = channel_info.get("uploads_playlist")
-    if not playlist_id:
-        return []
-    if playlist_id in st.session_state.playlist_cache:
-        cached = st.session_state.playlist_cache[playlist_id]
-        if len(cached) >= max_videos:
-            return cached[:max_videos]
+    playlist_id = ch_info["uploads_playlist"]
     video_ids = []
     req = YOUTUBE.playlistItems().list(part="contentDetails", playlistId=playlist_id, maxResults=50)
     while req and len(video_ids) < max_videos:
         try:
             resp = req.execute()
-        except Exception as e:
-            st.error(f"Playlist fetch error: {e}")
+        except:
             break
         for it in resp.get("items", []):
-            vid = it.get("contentDetails", {}).get("videoId")
-            if vid:
-                video_ids.append(vid)
+            vid = it["contentDetails"]["videoId"]
+            video_ids.append(vid)
             if len(video_ids) >= max_videos:
                 break
         req = YOUTUBE.playlistItems().list_next(req, resp)
-    st.session_state.playlist_cache[playlist_id] = video_ids
     return video_ids[:max_videos]
 
 def iso_to_dt(iso_str):
-    if not iso_str:
-        return None
     try:
-        return datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-    except Exception:
+        return datetime.fromisoformat(iso_str.replace("Z","+00:00"))
+    except:
         return None
 
 def render_video_card(col, row):
-    thumb = row.get("thumbnail")
-    title = row.get("title")
-    url = row.get("video_url") or f"https://www.youtube.com/watch?v={row.get('video_id')}"
-    channel = row.get("channel_title")
-    subs = row.get("subs")
-    views = row.get("views")
-    outlier = row.get("outlier")
-    published = row.get("publishedAt")
-    duration_s = row.get("duration_s")
-
-    if thumb:
-        col.image(thumb, use_column_width=True)
-    col.markdown(f"### [{title}]({url})")
-    if channel:
-        ch_line = channel
-        if subs is not None:
-            ch_line += f" — {int(subs):,} subs"
-        col.write(ch_line)
-    stats_line = ""
-    if views is not None:
-        stats_line += f"Views: {int(views):,}  "
-    if outlier is not None:
-        stats_line += f" |  **Outlier: {outlier}x**"
-    if stats_line:
-        col.write(stats_line)
-    if published:
-        dt = iso_to_dt(published)
-        if dt:
-            col.write(f"Published: {dt.date()}")
-    if duration_s:
-        mins = duration_s // 60
-        col.write(f"Duration: {mins}m {duration_s%60}s")
+    if row.get("thumbnail"):
+        col.image(row["thumbnail"], use_column_width=True)
+    col.markdown(f"### [{row['title']}]({row['video_url']})")
+    col.write(f"{row['channel_title']} — {int(row['subs']):,} subs")
+    col.write(f"Views: {int(row['views']):,}")
+    col.markdown(f"<span style='color:green;font-weight:700'>Outlier: {row['outlier']}x</span>", unsafe_allow_html=True)
+    dt = iso_to_dt(row.get("publishedAt"))
+    if dt:
+        col.write(f"Published: {dt.date()}")
+    if row.get("duration_s"):
+        mins = row['duration_s']//60
+        col.write(f"Duration: {mins}m {row['duration_s']%60}s")
 
 # -----------------------
 # APP UI
@@ -195,139 +156,143 @@ st.title("🎯 YouTube Outlier Finder")
 tab1, tab2 = st.tabs(["Saved Channels", "Research"])
 
 # -----------------------
-# SAVED CHANNELS TAB
+# SAVED CHANNELS
 # -----------------------
 with tab1:
-    st.header("Saved Channels Tool")
-    st.caption("Paste channel IDs or URLs (comma-separated). Example: https://www.youtube.com/channel/UC_xxx")
-    channel_input = st.text_area("Channels (IDs or URLs)", value="", height=80)
-    max_results = st.slider("Videos per channel to fetch (recent)", 5, 100, 25)
-    lookback_min, lookback_max = st.slider("Channel average lookback (videos)", 5, 100, (5, 50))
-    min_views = st.number_input("Min views (filter)", value=0, step=1000)
-    view_subs_ratio_min = st.number_input("Min views:subs ratio (filter)", value=0.0, step=0.1)
+    st.header("Saved Channels")
+    channel_input = st.text_area("Channel IDs or URLs (comma separated)")
+    max_videos = st.slider("Videos per channel", 5, 50, 10)
+    min_views = st.number_input("Min views", value=0, step=1000)
+    view_subs_ratio_min = st.number_input("Min views/subs ratio", value=0.0, step=0.1)
     content_type = st.selectbox("Content type", ["All", "Long-form", "Shorts"])
-    sort_by = st.selectbox("Sort by", ["Random", "Views", "Outlier Score", "Published"])
-
+    sort_by = st.selectbox("Sort by", ["Random","Views","Outlier"])
+    
     if st.button("Fetch Saved Channel Videos"):
-        ids = [parse_channel_id(x) for x in channel_input.split(",") if x.strip()]
-        ids = ids[:MAX_CHANNELS_PER_FETCH]
-        all_video_rows = []
-        channel_table = []
-        for cid in ids:
+        all_rows = []
+        for cid_raw in channel_input.split(","):
+            cid = parse_channel_id(cid_raw)
             ch = get_channel_info(cid)
             if not ch:
-                st.warning(f"No data for channel: {cid}")
+                st.warning(f"No data for channel: {cid_raw}")
                 continue
-            channel_table.append({
-                "Channel": ch["title"],
-                "Subscribers": ch["subs"],
-                "Total Views": ch["total_views"],
-                "Video Count": ch["video_count"],
-                "Created": ch["created_at"]
-            })
-            vids = get_uploads_video_ids_from_channel(cid, max_videos=max_results)
+            vids = get_channel_video_ids(cid, max_videos=max_videos)
             fetch_videos_details(vids)
-
-            # dynamic lookback sample
-            sample_count = random.randint(lookback_min, lookback_max)
-            look_ids = vids[:sample_count] if len(vids) >= sample_count else vids
-            fetch_videos_details(look_ids)
-            counts = [st.session_state.video_cache[v].get("views", 0) for v in look_ids if v in st.session_state.video_cache]
-            avg_views = sum(counts)/len(counts) if counts else 1  # fallback 1 to avoid div zero
-
+            avg_views = ch["total_views"] / max(ch["video_count"],1)
             for vid in vids:
                 d = st.session_state.video_cache.get(vid)
                 if not d:
                     continue
-                ds = d.get("duration_s")
-                typ = "Shorts" if ds is not None and ds < 60 else "Long-form"
-                if content_type == "Shorts" and typ != "Shorts":
+                typ = "Shorts" if d.get("duration_s") and d["duration_s"]<60 else "Long-form"
+                if content_type != "All" and typ != content_type:
                     continue
-                if content_type == "Long-form" and typ != "Long-form":
-                    continue
-                views = d.get("views", 0)
+                views = d["views"]
                 if views < min_views:
                     continue
-                subs = ch.get("subs", 0)
-                ratio = (views / subs) if subs else float('inf')
+                ratio = (views / ch["subs"]) if ch["subs"] else float('inf')
                 if ratio < view_subs_ratio_min:
                     continue
-                outlier = round(views / avg_views, 2)
-                all_video_rows.append({
+                all_rows.append({
                     "video_id": vid,
-                    "title": d.get("title"),
-                    "thumbnail": d.get("thumbnail"),
-                    "publishedAt": d.get("publishedAt"),
+                    "title": d["title"],
                     "video_url": f"https://www.youtube.com/watch?v={vid}",
                     "views": views,
-                    "duration_s": ds,
-                    "type": typ,
+                    "outlier": round(views/avg_views,2) if avg_views else 0,
                     "channel_title": ch["title"],
                     "subs": ch["subs"],
-                    "outlier": outlier
+                    "publishedAt": d.get("publishedAt"),
+                    "duration_s": d.get("duration_s"),
+                    "thumbnail": d.get("thumbnail")
                 })
-
-        if channel_table:
-            st.subheader("Channels (summary)")
-            st.dataframe(pd.DataFrame(channel_table))
-        if not all_video_rows:
-            st.warning("No videos matched your filters.")
+        if not all_rows:
+            st.warning("No videos matched filters.")
         else:
-            df = pd.DataFrame(all_video_rows)
-            if sort_by == "Views":
-                df = df.sort_values(by="views", ascending=False)
-            elif sort_by == "Outlier Score":
-                df = df.sort_values(by="outlier", ascending=False)
-            elif sort_by == "Published":
-                df = df.sort_values(by="publishedAt", ascending=False)
-            elif sort_by == "Random":
-                df = df.sample(frac=1).reset_index(drop=True)
-
+            df = pd.DataFrame(all_rows)
+            if sort_by=="Views":
+                df = df.sort_values("views", ascending=False)
+            elif sort_by=="Outlier":
+                df = df.sort_values("outlier", ascending=False)
+            elif sort_by=="Random":
+                df = df.sample(frac=1)
             st.subheader(f"Videos ({len(df)})")
-            for i in range(0, len(df), 4):
+            for i in range(0,len(df),4):
                 cols = st.columns(4)
-                for j, col in enumerate(cols):
-                    idx = i + j
+                for j,col in enumerate(cols):
+                    idx = i+j
                     if idx < len(df):
                         render_video_card(col, df.iloc[idx])
-
+            # download
             output = io.BytesIO()
-            df.to_excel(output, index=False)
-            st.download_button(
-                "Download saved channels results (.xlsx)",
-                data=output.getvalue(),
-                file_name="saved_channels_videos.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            df.to_excel(output,index=False)
+            st.download_button("Download results", data=output.getvalue(), file_name="saved_channels.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 # -----------------------
-# RESEARCH TAB
+# RESEARCH
 # -----------------------
-# (Keep your Research tab mostly unchanged — it already fetches candidate videos dynamically)
-# You may want to copy the same "lookback" improvements if needed.
 with tab2:
-    st.header("Research (Outlier Finder)")
-    st.caption("Use framing keywords (e.g., 'I tried', 'My story') or your own terms.")
-    keywords_input = st.text_area("Keywords", "I tried, My story, Top 10", height=80, key="keywords_tab2")
-    num_results = st.slider("Random results", 5, 200, 50, key="num_results_tab2")
-    min_views = st.number_input("Min views", 100000, step=10000, key="min_views_tab2")
-    min_subs = st.number_input("Min subs", 0, step=1000, key="min_subs_tab2")
-    min_outlier = st.number_input("Min outlier multiplier", 5.0, step=0.1, key="min_outlier_tab2")
-    min_views_subs_ratio = st.number_input("Min views:subs ratio", 0.0, step=0.1, key="ratio_tab2")
-    content_type = st.selectbox("Content type", ["All", "Long-form", "Shorts"], key="ctype_tab2")
+    st.header("Research")
+    keywords_input = st.text_area("Keywords (comma separated)")
+    num_results = st.slider("Number of random results", 5, 50, 20)
+    min_views = st.number_input("Min views", value=0, step=1000, key="r_min_views")
+    min_subs = st.number_input("Min channel subscribers", value=0, step=1000)
+    min_outlier = st.number_input("Min outlier multiplier", value=1.0, step=0.1)
+    content_type = st.selectbox("Content type", ["All","Long-form","Shorts"], key="r_content_type")
 
-    include_keywords = st.text_input("Include keywords", key="include_kw_tab2")
-    exclude_keywords = st.text_input("Exclude keywords", key="exclude_kw_tab2")
-    include_channels = st.text_input("Include channels", key="include_ch_tab2")
-    exclude_channels = st.text_input("Exclude channels", key="exclude_ch_tab2")
-    preset = st.selectbox("Date preset", ["All Time", "Last 30 Days", "Last 90 Days", "Last 180 Days", "Last 365 Days"], key="preset_tab2")
+    if st.button("Fetch Research Videos"):
+        keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
+        candidate_vids = []
+        with st.spinner("Searching videos..."):
+            for kw in keywords:
+                res = safe_api_call(YOUTUBE.search().list, part="id", q=kw, type="video", maxResults=SEARCH_RESULTS_PER_KEYWORD, order="viewCount")
+                if not res:
+                    continue
+                candidate_vids.extend([it["id"]["videoId"] for it in res.get("items",[])])
+        candidate_vids = list(dict.fromkeys(candidate_vids))
+        fetch_videos_details(candidate_vids)
+        final_rows = []
+        for vid in candidate_vids:
+            d = st.session_state.video_cache.get(vid)
+            if not d:
+                continue
+            ch = get_channel_info(d["channelId"])
+            if not ch:
+                continue
+            avg_views = ch["total_views"]/max(ch["video_count"],1)
+            views = d["views"]
+            outlier = round(views/avg_views,2) if avg_views else 0
+            typ = "Shorts" if d.get("duration_s") and d["duration_s"]<60 else "Long-form"
+            if content_type!="All" and typ!=content_type:
+                continue
+            if views < min_views or ch["subs"]<min_subs or outlier<min_outlier:
+                continue
+            final_rows.append({
+                "video_id": vid,
+                "title": d["title"],
+                "video_url": f"https://www.youtube.com/watch?v={vid}",
+                "views": views,
+                "outlier": outlier,
+                "channel_title": ch["title"],
+                "subs": ch["subs"],
+                "publishedAt": d.get("publishedAt"),
+                "duration_s": d.get("duration_s"),
+                "thumbnail": d.get("thumbnail")
+            })
+        if not final_rows:
+            st.warning("No videos matched filters.")
+        else:
+            final_sample = random.sample(final_rows, min(num_results, len(final_rows)))
+            df = pd.DataFrame(final_sample)
+            st.subheader(f"Research Results ({len(df)})")
+            for i in range(0,len(df),4):
+                cols = st.columns(4)
+                for j,col in enumerate(cols):
+                    idx = i+j
+                    if idx < len(df):
+                        render_video_card(col, df.iloc[idx])
+            # download
+            output = io.BytesIO()
+            df.to_excel(output,index=False)
+            st.download_button("Download results", data=output.getvalue(), file_name="research.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    if st.button("Random", key="random_tab2"):
-        st.write("Running research…")
-        # (core logic same as yours – omitted for brevity, keep existing filtering code here)
-
-st.markdown("---")
-st.caption("Built with YouTube Data API v3 — caches in-session to reduce quota usage.")
 
 
 
