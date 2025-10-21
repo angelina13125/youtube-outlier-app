@@ -8,7 +8,7 @@ import io
 # ==========================
 # YouTube API Setup
 # ==========================
-API_KEY = "YOUR_API_KEY_HERE"
+API_KEY = "AIzaSyBeP68hrblnvgVFkZccoRas44uJSshHTxE"
 youtube = build("youtube", "v3", developerKey=API_KEY)
 
 # ==========================
