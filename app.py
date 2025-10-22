@@ -21,7 +21,7 @@ youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 def get_channel_id_from_url(url):
     """Convert channel URL to channel ID"""
     try:
-        if "@“ in url:
+        if "@" in url:
             handle = url.split("@")[-1]
             res = youtube.search().list(q=handle, type="channel", part="snippet", maxResults=1).execute()
             return res["items"][0]["snippet"]["channelId"]
