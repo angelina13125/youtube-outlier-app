@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 # --------------------------
 # API Key Setup
 # --------------------------
-API_KEY = "AIzaSyBeP68hrblnvgVFkZccoRas44uJSshHTxE"
+YOUTUBE_API_KEY = "AIzaSyBeP68hrblnvgVFkZccoRas44uJSshHTxE"
 
 youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 
