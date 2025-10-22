@@ -10,7 +10,9 @@ from urllib.parse import urlparse
 # -----------------------
 # CONFIG
 # -----------------------
-API_KEY = "AIzaSyBeP68hrblnvgVFkZccoRas44uJSshHTxE"
+
+API_KEY = st.secrets["youtube_api_key"]
+
 YOUTUBE = build("youtube", "v3", developerKey=API_KEY)
 SEARCH_RESULTS_PER_KEYWORD = 10  # number of videos fetched per keyword
 
