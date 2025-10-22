@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 # -----------------------
 # CONFIG
 # -----------------------
-API_KEY = "YOUR_API_KEY_HERE"
+API_KEY = "AIzaSyBeP68hrblnvgVFkZccoRas44uJSshHTxE"
 YOUTUBE = build("youtube", "v3", developerKey=API_KEY)
 MAX_VIDEOS_PER_CHANNEL = 50
 SEARCH_RESULTS_PER_KEYWORD = 10
