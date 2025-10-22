@@ -5,7 +5,6 @@ import io
 import re
 from datetime import datetime
 from googleapiclient.discovery import build
-import openpyxl  # ✅ fixes the Excel export error
 
 # --------------------------
 # API Key Setup
@@ -25,6 +24,16 @@ def normalize_channel_url(url):
     handle = handle.replace("www.youtube.com/", "").replace("youtube.com/", "")
     handle = handle.replace("@", "")
     return handle
+
+
+def parse_duration(duration_str):
+    """Convert ISO 8601 duration (e.g. PT10M30S) to minutes."""
+    match = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", duration_str)
+    if not match:
+        return 0
+    hours, minutes, seconds = match.groups()
+    total_minutes = int(hours or 0) * 60 + int(minutes or 0) + int(seconds or 0) / 60
+    return total_minutes
 
 
 def get_channel_videos(channel_handle, max_results=10, min_views=0):
@@ -75,16 +84,6 @@ def get_channel_videos(channel_handle, max_results=10, min_views=0):
     except Exception as e:
         print(f"Error fetching channel {channel_handle}: {e}")
         return []
-
-
-def parse_duration(duration_str):
-    """Convert ISO 8601 duration (e.g. PT10M30S) to minutes."""
-    match = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", duration_str)
-    if not match:
-        return 0
-    hours, minutes, seconds = match.groups()
-    total_minutes = int(hours or 0) * 60 + int(minutes or 0) + int(seconds or 0) / 60
-    return total_minutes
 
 
 def fetch_random_videos(keywords, num_results=20, min_views=100000):
@@ -173,13 +172,6 @@ with tab1:
                 df = df.sort_values("Outlier Score", ascending=False)
 
             st.dataframe(df[["Title", "Channel", "Views", "Outlier Score", "Published"]], use_container_width=True)
-
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                df.to_excel(writer, index=False)
-            st.download_button("Export to Excel", data=output.getvalue(),
-                               file_name="channel_outliers.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
             st.warning("No videos matched your filters.")
 
@@ -201,19 +193,4 @@ with tab2:
             videos = fetch_random_videos(keywords, num_results=num_results, min_views=min_views_research)
 
             if videos:
-                df = pd.DataFrame(videos)
-                avg_views = df["Views"].mean()
-                df["Outlier Score"] = round(df["Views"] / avg_views, 2)
-                df = df[df["Outlier Score"] >= min_outlier_score]
-
-                st.dataframe(df[["Title", "Keyword", "Views", "Outlier Score", "Published"]], use_container_width=True)
-
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    df.to_excel(writer, index=False)
-                st.download_button("Export to Excel", data=output.getvalue(),
-                                   file_name="random_outlier_videos.xlsx",
-                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            else:
-                st.warning("No videos found for your criteria.")
-
+                df = pd.DataF
