@@ -93,7 +93,7 @@ with tab1:
     st.header("Saved Channels Outlier Search")
     channels_input = st.text_area("Enter YouTube channel URLs or IDs (one per line):")
     max_videos = st.number_input("Videos per channel", 1, 50, 10)
-    min_views = st.number_input("Minimum views", 0, 10_000_000, 100_000)
+   min_views = st.number_input("Minimum views", 0, 10_000_000, 100_000, key="saved_min_views")
     only_long = st.checkbox("Only long form videos (8+ min)", True)
     sort_outlier = st.checkbox("Sort by outlier score (desc)", True)
 
@@ -151,7 +151,7 @@ with tab2:
     st.header("Research: Explore New Niches")
     keywords = st.text_input("Enter keywords (comma-separated):")
     num_results = st.number_input("Number of random videos", 5, 50, 20)
-    min_views = st.number_input("Minimum views", 0, 10_000_000, 100_000)
+    min_views_r = st.number_input("Minimum views", 0, 10_000_000, 100_000, key="research_min_views")
     min_outlier = st.number_input("Minimum outlier score", 1.0, 10.0, 1.0)
 
     if st.button("Search Research"):
