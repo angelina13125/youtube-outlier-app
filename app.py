@@ -1,11 +1,9 @@
 import streamlit as st
 import pandas as pd
 import random
-import io
 import re
 from datetime import datetime
 from googleapiclient.discovery import build
-import openpyxl  # needed for Excel export
 
 # --------------------------
 # API Key Setup
@@ -37,7 +35,6 @@ def get_channel_videos(channel_handle, max_results=10, long_form=True):
     """Fetch videos for a channel (simplified)."""
     videos = []
     try:
-        # get uploads playlist
         search_res = youtube.search().list(
             part="snippet",
             channelId=None,
@@ -144,12 +141,6 @@ with tab1:
             else:
                 df = df.sample(frac=1)
             st.dataframe(df[["Title","Channel","Views","Outlier Score","Published"]], use_container_width=True)
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                df.to_excel(writer, index=False)
-            st.download_button("Export Excel", data=output.getvalue(),
-                               file_name="channel_videos.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
             st.warning("No videos found.")
 
@@ -170,11 +161,5 @@ with tab2:
         if videos:
             df = pd.DataFrame(videos)
             st.dataframe(df[["Title","Keyword","Views","Outlier Score","Published"]], use_container_width=True)
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                df.to_excel(writer, index=False)
-            st.download_button("Export Excel", data=output.getvalue(),
-                               file_name="research_videos.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
             st.warning("No videos found for your criteria.")
